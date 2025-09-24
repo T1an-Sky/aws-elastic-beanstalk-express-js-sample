@@ -8,7 +8,7 @@ pipeline {
     
     environment {
         // Docker registry credentials (replace with your Docker Hub username)
-        DOCKER_REGISTRY = 'T1an-Sky'  // 改为你的 Docker Hub 用户名
+        DOCKER_REGISTRY = 'tianhaogeng'
         IMAGE_NAME = 'node-express-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
         
