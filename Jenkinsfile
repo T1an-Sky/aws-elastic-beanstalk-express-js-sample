@@ -1,13 +1,8 @@
 pipeline {
-    agent {
-        docker {
-            image 'node:16'  // Use Node.js 16 as build agent
-            args '-v /var/run/docker.sock:/var/run/docker.sock'
-        }
-    }
+    agent any  // 使用 any agent 避免 Docker agent 的问题
     
     environment {
-        // Docker registry credentials (replace with your Docker Hub username)
+        // Docker registry credentials
         DOCKER_REGISTRY = 'tianhaogeng'
         IMAGE_NAME = 'node-express-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
@@ -82,14 +77,21 @@ pipeline {
             }
         }
         
+        stage('Test Docker Connection') {
+            steps {
+                echo 'Testing Docker connection...'
+                sh 'docker --version'
+                sh 'docker info || echo "Docker info failed"'
+            }
+        }
+        
         stage('Build Docker Image') {
             steps {
                 echo 'Building Docker image...'
                 script {
                     // Create Dockerfile if it doesn't exist
                     if (!fileExists('Dockerfile')) {
-                        writeFile file: 'Dockerfile', text: '''
-FROM node:16-alpine
+                        writeFile file: 'Dockerfile', text: '''FROM node:16-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
@@ -100,7 +102,7 @@ CMD ["npm", "start"]
                     }
                     
                     // Build Docker image
-                    def image = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
+                    sh "docker build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ."
                     
                     // Tag as latest
                     sh "docker tag ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
@@ -117,12 +119,14 @@ CMD ["npm", "start"]
             steps {
                 echo 'Pushing Docker image to registry...'
                 script {
-                    docker.withRegistry('https://registry.hub.docker.com', 'docker-hub-credentials') {
-                        def image = docker.image("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
-                        image.push()
-                        image.push('latest')
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                                                     usernameVariable: 'DOCKER_USER', 
+                                                     passwordVariable: 'DOCKER_PASS')]) {
+                        sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                        sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                        sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
+                        echo "Image pushed successfully"
                     }
-                    echo "Image pushed successfully"
                 }
             }
         }
@@ -130,17 +134,23 @@ CMD ["npm", "start"]
     
     post {
         always {
+            script {
+                // 只有在 node 上下文中才执行 cleanWs
+                try {
+                    if (env.WORKSPACE) {
+                        cleanWs()
+                    }
+                } catch (Exception e) {
+                    echo "Workspace cleanup failed: ${e.getMessage()}"
+                }
+            }
             echo 'Pipeline completed'
-            // Clean up workspace
-            cleanWs()
         }
         success {
             echo 'Pipeline succeeded!'
-            // Send success notification (optional)
         }
         failure {
             echo 'Pipeline failed!'
-            // Send failure notification (optional)
         }
     }
 }
